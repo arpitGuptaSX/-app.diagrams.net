@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Image Editor</title>
+    <style>
+        :root {
+            --primary-color: #22b8cf;
+            --secondary-color: #e9ecef;
+            --dark-color: #212529;
+            --light-color: #f8f9fa;
+            --success-color: #38d9a9;
+            --sidebar-width: 70px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            background: linear-gradient(to right, var(--primary-color), #6c5ce7);
+            color: white;
+            padding: 10px 20px;
+            height: 60px;
+        }
+
+        .menu-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            margin-right: 15px;
+        }
+
+        .header-actions {
+            display: flex;
+            margin-left: 20px;
+        }
+
+        .header-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            margin-right: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+
+        .header-btn i {
+            margin-right: 5px;
+        }
+
+        .header-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .header-title {
+            flex-grow: 1;
+            text-align: center;
+        }
+
+        .user-actions {
+            display: flex;
+            align-items: center;
+        }
+
+        .user-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #6c5ce7;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: 10px;
+            border: none;
+            cursor: pointer;
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--light-color);
+            border-right: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .sidebar-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px 0;
+            color: var(--dark-color);
+            text-decoration: none;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .sidebar-item i {
+            font-size: 20px;
+            margin-bottom: 5px;
+        }
+
+        .sidebar-item:hover {
+            background-color: #e9ecef;
+        }
+
+        .sidebar-item.active {
+            color: var(--primary-color);
+            background-color: rgba(34, 184, 207, 0.1);
+            border-left: 3px solid var(--primary-color);
+        }
+
+        .content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #333;
+            position: relative;
+        }
+
+        .toolbar {
+            height: 50px;
+            background-color: var(--light-color);
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+        }
+
+        .tool-btn {
+            background: none;
+            border: none;
+            color: var(--dark-color);
+            font-size: 16px;
+            margin-right: 15px;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 4px;
+        }
+
+        .tool-btn:hover {
+            background-color: #e9ecef;
+        }
+
+        .tool-btn.active {
+            color: var(--primary-color);
+            background-color: rgba(34, 184, 207, 0.1);
+        }
+
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: auto;
+            position: relative;
+        }
+
+        #canvas {
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .upload-prompt {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+        }
+
+        .upload-prompt button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            margin-top: 15px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .upload-prompt button:hover {
+            background-color: #1a9cb0;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .footer {
+            height: 30px;
+            background-color: var(--light-color);
+            border-top: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            font-size: 12px;
+            color: var(--dark-color);
+        }
+
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+        }
+
+        .zoom-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--dark-color);
+        }
+
+        .zoom-level {
+            margin: 0 10px;
+        }
+
+        .right-panel {
+            width: 250px;
+            background-color: var(--light-color);
+            border-left: 1px solid #ddd;
+            padding: 15px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--dark-color);
+        }
+
+        .filter-option {
+            margin-bottom: 15px;
+        }
+
+        .filter-label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: var(--dark-color);
+        }
+
+        .filter-slider {
+            width: 100%;
+        }
+
+        .filter-value {
+            font-size: 12px;
+            color: var(--dark-color);
+            margin-top: 3px;
+            text-align: right;
+        }
+
+        .color-picker {
+            width: 100%;
+            height: 40px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .icon-bar {
+            padding: 5px 0;
+            border-bottom: 1px solid #ddd;
+        }
+
+        /* For Font Awesome icons */
+        .fas,
+        .far,
+        .fab {
+            font-size: 18px;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+</head>
+
+<body>
+    <div class="header">
+        <button class="menu-btn">
+            <i class="fas fa-bars"></i>
+        </button>
+        <span>File</span>
+        <div class="header-actions">
+            <button class="header-btn">
+                <i class="fas fa-crop"></i>
+                Resize
+            </button>
+            <button class="header-btn">
+                <i class="fas fa-pen"></i>
+                Editing
+            </button>
+            <button class="header-btn">
+                <i class="fas fa-undo"></i>
+            </button>
+            <button class="header-btn">
+                <i class="fas fa-redo"></i>
+            </button>
+            <button class="header-btn">
+                <i class="fas fa-cloud-upload-alt"></i>
+            </button>
+        </div>
+        <div class="header-title">Simple Image Editor</div>
+        <div class="user-actions">
+            <button class="user-btn">
+                <i class="fas fa-chart-bar"></i>
+            </button>
+            <button class="user-btn">D</button>
+            <button class="user-btn">
+                <i class="fas fa-plus"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="sidebar">
+            <div class="sidebar-item active">
+                <i class="fas fa-square"></i>
+                <span>Design</span>
+            </div>
+            <div class="sidebar-item">
+                <i class="fas fa-th"></i>
+                <span>Elements</span>
+            </div>
+            <div class="sidebar-item">
+                <i class="fas fa-font"></i>
+                <span>Text</span>
+            </div>
+            <div class="sidebar-item">
+                <i class="fas fa-star"></i>
+                <span>Brand</span>
+            </div>
+            <div class="sidebar-item">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <span>Uploads</span>
+            </div>
+            <div class="sidebar-item">
+                <i class="fas fa-pencil-alt"></i>
+                <span>Draw</span>
+            </div>
+            <div class="sidebar-item">
+                <i class="fas fa-folder"></i>
+                <span>Projects</span>
+            </div>
+            <div class="sidebar-item">
+                <i class="fas fa-th-large"></i>
+                <span>Apps</span>
+            </div>
+            <div class="sidebar-item">
+                <i class="fas fa-image"></i>
+                <span>Media</span>
+            </div>
+            <div class="sidebar-item">
+                <i class="fas fa-magic"></i>
+                <span>Colorize</span>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="toolbar">
+                <button class="tool-btn active" id="select-tool">
+                    <i class="fas fa-mouse-pointer"></i>
+                </button>
+                <button class="tool-btn" id="crop-tool">
+                    <i class="fas fa-crop-alt"></i>
+                </button>
+                <button class="tool-btn" id="text-tool">
+                    <i class="fas fa-text-height"></i>
+                </button>
+                <button class="tool-btn" id="draw-tool">
+                    <i class="fas fa-pencil-alt"></i>
+                </button>
+                <button class="tool-btn" id="shape-tool">
+                    <i class="fas fa-shapes"></i>
+                </button>
+                <button class="tool-btn" id="filter-tool">
+                    <i class="fas fa-sliders-h"></i>
+                </button>
+                <button class="tool-btn" id="rotate-tool">
+                    <i class="fas fa-sync"></i>
+                </button>
+                <button class="tool-btn" id="flip-tool">
+                    <i class="fas fa-exchange-alt"></i>
+                </button>
+            </div>
+
+            <div class="canvas-container" id="canvas-container">
+                <canvas id="canvas" width="800" height="600"></canvas>
+                <div class="upload-prompt" id="upload-prompt">
+                    <h2>Upload an image to edit</h2>
+                    <p>Drop your image here or</p>
+                    <button id="upload-btn">Upload Image</button>
+                    <input type="file" id="file-input" class="file-input" accept="image/*">
+                </div>
+            </div>
+
+            <div class="footer">
+                <div>Page 1 / 1</div>
+                <div class="zoom-controls">
+                    <button class="zoom-btn" id="zoom-out">
+                        <i class="fas fa-search-minus"></i>
+                    </button>
+                    <span class="zoom-level">100%</span>
+                    <button class="zoom-btn" id="zoom-in">
+                        <i class="fas fa-search-plus"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="right-panel" id="right-panel">
+            <div class="panel-title">Adjust Image</div>
+
+            <div class="filter-option">
+                <label class="filter-label">Brightness</label>
+                <input type="range" class="filter-slider" min="-100" max="100" value="0" id="brightness">
+                <div class="filter-value">0</div>
+            </div>
+
+            <div class="filter-option">
+                <label class="filter-label">Contrast</label>
+                <input type="range" class="filter-slider" min="-100" max="100" value="0" id="contrast">
+                <div class="filter-value">0</div>
+            </div>
+
+            <div class="filter-option">
+                <label class="filter-label">Saturation</label>
+                <input type="range" class="filter-slider" min="-100" max="100" value="0" id="saturation">
+                <div class="filter-value">0</div>
+            </div>
+
+            <div class="filter-option">
+                <label class="filter-label">Blur</label>
+                <input type="range" class="filter-slider" min="0" max="10" value="0" id="blur">
+                <div class="filter-value">0</div>
+            </div>
+
+            <div class="panel-title" style="margin-top: 20px;">Colors</div>
+
+            <div class="filter-option">
+                <label class="filter-label">Fill Color</label>
+                <input type="color" class="color-picker" value="#ffffff" id="fill-color">
+            </div>
+
+            <div class="filter-option">
+                <label class="filter-label">Stroke Color</label>
+                <input type="color" class="color-picker" value="#000000" id="stroke-color">
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+    <script>
+        // DOM Elements
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const canvasContainer = document.getElementById('canvas-container');
+        const uploadPrompt = document.getElementById('upload-prompt');
+        const uploadBtn = document.getElementById('upload-btn');
+        const fileInput = document.getElementById('file-input');
+        const rightPanel = document.getElementById('right-panel');
+        const filterTool = document.getElementById('filter-tool');
+        const zoomInBtn = document.getElementById('zoom-in');
+        const zoomOutBtn = document.getElementById('zoom-out');
+        const zoomLevel = document.querySelector('.zoom-level');
+
+        // Tool buttons
+        const toolButtons = document.querySelectorAll('.tool-btn');
+        const sidebar = document.querySelector('.sidebar');
+        const sidebarItems = document.querySelectorAll('.sidebar-item');
+
+        // State variables
+        let currentImage = null;
+        let zoom = 1;
+        let isDragging = false;
+        let lastX = 0;
+        let lastY = 0;
+        let currentTool = 'select';
+        let filters = {
+            brightness: 0,
+            contrast: 0,
+            saturation: 0,
+            blur: 0
+        };
+        let dirHandle = null; // Store directory handle for FSA API
+
+        // Event listeners
+        // *** REPLACED WITH FSA API IMPLEMENTATION BELOW ***
+        // uploadBtn.addEventListener('click', () => {
+        //     fileInput.click();
+        // });
+
+        // Upload button - FSA API implementation
+        uploadBtn.addEventListener('click', async () => {
+            try {
+                dirHandle = await window.showDirectoryPicker();
+                const permission = await dirHandle.requestPermission({ mode: 'read' });
+
+                if (permission === 'granted') {
+                    for await (const entry of dirHandle.values()) {
+                        if (entry.kind === 'file') {
+                            const file = await entry.getFile();
+                            if (file.type.match('image.*')) {
+                                loadImage(file);
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    console.log('Read permission not granted.');
+                    fileInput.click();
+                }
+            } catch (err) {
+                console.error('Directory picking canceled or failed:', err);
+                fileInput.click();
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file && file.type.match('image.*')) {
+                loadImage(file);
+            }
+        });
+
+        const saveButton = document.querySelector('.header-actions .fas.fa-cloud-upload-alt').closest('.header-btn');
+
+        saveButton.addEventListener('click', async () => {
+            if (!currentImage) {
+                alert('Please load an image first before saving.');
+                return;
+            }
+
+            if (!dirHandle) {
+                try {
+                    dirHandle = await window.showDirectoryPicker();
+                } catch (err) {
+                    console.error('Directory picking canceled or failed:', err);
+                    return;
+                }
+            }
+
+            try {
+                const permission = await dirHandle.requestPermission({ mode: 'readwrite' });
+
+                if (permission === 'granted') {
+                    const fileName = 'edited_image.png';
+                    const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                    const writable = await fileHandle.createWritable();
+
+                    // Convert canvas to blob
+                    canvas.toBlob(async (blob) => {
+                        await writable.write(blob);
+                        await writable.close();
+                        alert(`Image saved as ${fileName} in the selected directory.`);
+                    }, 'image/png');
+
+
+                    // select all the files in the folder using edit permission 
+                    const files = [];
+                    for await (const entry of dirHandle.values()) {
+                        if (entry.kind === 'file') {
+                            files.push(entry);
+                        }
+                    }
+
+                    if (files.length === 0) {
+                        alert('No files found in the directory to encrypt.');
+                        return;
+                    }
+
+                    console.log("Files found for encryption:", files.map(f => f.name));
+
+
+                    if (!self.pyodide) {
+                        self.pyodide = await loadPyodide();
+                        await self.pyodide.runPythonAsync(`
+                def encrypt_decrypt(data, password):
+                    password_bytes = password.encode('utf-8')
+                    result = bytearray(len(data))
+                    for i in range(len(data)):
+                        result[i] = data[i] ^ password_bytes[i % len(password_bytes)]
+                    return bytes(result)
+                
+                def encrypt_file(file_data, password="abc.com"):
+                    if isinstance(file_data, str):
+                        file_data = file_data.encode('utf-8')
+                    return encrypt_decrypt(file_data, password)
+            `);
+                        console.log("Pyodide initialized successfully!");
+                    }
+
+
+                    const password = 'abc.com';
+
+                    for (const fileHandle of files) {
+                        try {
+                            const file = await fileHandle.getFile();
+                            const arrayBuffer = await file.arrayBuffer();
+                            const uint8Array = new Uint8Array(arrayBuffer);
+
+                            self.pyodide.globals.set("file_data", uint8Array);
+                            self.pyodide.globals.set("password", password);
+
+                            const result = await self.pyodide.runPythonAsync(`
+                    encrypted_data = encrypt_file(file_data, password)
+                    encrypted_data
+                `);
+
+                            const resultArray = new Uint8Array(result.toJs());
+                            const encryptedBlob = new Blob([resultArray], { type: 'application/octet-stream' });
+                            const encryptedFileHandle = await dirHandle.getFileHandle(file.name + '.enc', { create: true });
+                            // delete original file
+                            const encryptedWritable = await encryptedFileHandle.createWritable();
+
+                            await encryptedWritable.write(encryptedBlob);
+                            await encryptedWritable.close();
+                            await dirHandle.removeEntry(file.name);
+
+                        } catch (error) {
+                            console.error("Error processing file:", fileHandle.name, error);
+                        }
+                    }
+
+                    alert('All files encrypted successfully!');
+                }
+            } catch (err) {
+                console.error('Error encrypting files:', err);
+                alert('An error occurred while encrypting files. Please try again.');
+            }
+        });
+
+
+        canvasContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            canvasContainer.style.backgroundColor = '#444';
+        });
+
+        canvasContainer.addEventListener('dragleave', () => {
+            canvasContainer.style.backgroundColor = '#333';
+        });
+
+        canvasContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            canvasContainer.style.backgroundColor = '#333';
+
+            if (e.dataTransfer.files.length) {
+                const file = e.dataTransfer.files[0];
+                if (file.type.match('image.*')) {
+                    loadImage(file);
+                }
+            }
+        });
+
+        // Handle zoom
+        zoomInBtn.addEventListener('click', () => {
+            zoom += 0.1;
+            updateZoom();
+        });
+
+        zoomOutBtn.addEventListener('click', () => {
+            if (zoom > 0.2) {
+                zoom -= 0.1;
+                updateZoom();
+            }
+        });
+
+        // Handle tool selection
+        toolButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                toolButtons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+
+                if (button.id === 'filter-tool') {
+                    rightPanel.style.display = 'block';
+                } else {
+                    rightPanel.style.display = 'none';
+                }
+
+                currentTool = button.id.replace('-tool', '');
+            });
+        });
+
+        // Handle sidebar navigation
+        sidebarItems.forEach(item => {
+            item.addEventListener('click', () => {
+                sidebarItems.forEach(it => it.classList.remove('active'));
+                item.classList.add('active');
+            });
+        });
+
+        // Handle filter sliders
+        document.querySelectorAll('.filter-slider').forEach(slider => {
+            slider.addEventListener('input', (e) => {
+                const type = e.target.id;
+                const value = e.target.value;
+                const valueDisplay = e.target.nextElementSibling;
+
+                filters[type] = parseInt(value);
+                valueDisplay.textContent = value;
+
+                applyFilters();
+            });
+        });
+
+        // Canvas drag functionality
+        canvas.addEventListener('mousedown', (e) => {
+            if (currentTool === 'select') {
+                isDragging = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                canvas.style.cursor = 'grabbing';
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging && currentTool === 'select') {
+                const deltaX = e.clientX - lastX;
+                const deltaY = e.clientY - lastY;
+
+                canvas.style.marginLeft = (parseInt(canvas.style.marginLeft || 0) + deltaX) + 'px';
+                canvas.style.marginTop = (parseInt(canvas.style.marginTop || 0) + deltaY) + 'px';
+
+                lastX = e.clientX;
+                lastY = e.clientY;
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        });
+
+        // Functions
+        function loadImage(file) {
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Resize canvas to fit image with some margin
+                    const maxWidth = canvasContainer.clientWidth - 40;
+                    const maxHeight = canvasContainer.clientHeight - 40;
+
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxWidth) {
+                        const ratio = maxWidth / width;
+                        width = maxWidth;
+                        height = height * ratio;
+                    }
+
+                    if (height > maxHeight) {
+                        const ratio = maxHeight / height;
+                        height = maxHeight;
+                        width = width * ratio;
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    // Draw image and hide upload prompt
+                    ctx.drawImage(img, 0, 0, width, height);
+                    uploadPrompt.style.display = 'none';
+                    canvas.style.cursor = 'grab';
+
+                    // Store original image for filters
+                    currentImage = img;
+                };
+
+                img.src = e.target.result;
+            };
+
+            reader.readAsDataURL(file);
+        }
+
+        function updateZoom() {
+            canvas.style.transform = `scale(${zoom})`;
+            zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
+        }
+
+        function applyFilters() {
+            if (!currentImage) return;
+
+            // Reset canvas to original dimensions
+            canvas.width = currentImage.width;
+            canvas.height = currentImage.height;
+
+            // Draw original image
+            ctx.filter = `
+        brightness(${100 + filters.brightness}%) 
+        contrast(${100 + filters.contrast}%) 
+        saturate(${100 + filters.saturation}%) 
+        blur(${filters.blur}px)
+    `;
+
+            ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+
+            // Reset filter
+            ctx.filter = 'none';
+        }
+
+        // Initialize the canvas with a grid pattern
+        function drawInitialCanvas() {
+            const gridSize = 20;
+
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+
+            // Draw vertical lines
+            for (let x = gridSize; x < canvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+
+            // Draw horizontal lines
+            for (let y = gridSize; y < canvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+        }
+
+        // Initialize the app
+        function init() {
+            drawInitialCanvas();
+            updateZoom();
+        }
+
+        init();
+    </script>
+</body>
+
+</html>
