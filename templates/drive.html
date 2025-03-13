@@ -150,31 +150,28 @@
                         </td>
                         <td>
                             {% if file.collaborators %}
-                            <div class="dropdown">
-                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
-                                    data-bs-toggle="dropdown" aria-expanded="false">
-                                    {{ file.collaborators|length }} Collaborator(s)
-                                </button>
-                                <ul class="dropdown-menu p-2" style="max-width: 300px;">
-                                    {% for collaborator in file.collaborators %}
-                                    <li class="d-flex justify-content-between align-items-center mb-2">
-                                        <div>
-                                            <strong>{{ collaborator.emailAddress }}</strong>
-                                            <small class="d-block text-muted">{{ collaborator.role }}</small>
-                                        </div>
-                                        <button class="btn btn-sm btn-outline-danger"
-                                            onclick="removeSpecificCollaborator('{{ file.id }}', '{{ collaborator.emailAddress }}')">
-                                            <i class="bi bi-x"></i>
-                                        </button>
-                                    </li>
-                                    {% if not loop.last %}<li>
-                                        <hr class="dropdown-divider">
-                                    </li>{% endif %}
-                                    {% endfor %}
-                                </ul>
-                            </div>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                        {{ file.collaborators|length }} Collaborator(s)
+                                    </button>
+                                    <ul class="dropdown-menu p-2" style="max-width: 250px;">
+                                        {% for collaborator in file.collaborators %}
+                                            <li class="d-flex align-items-center py-1">
+                                                <div class="flex-grow-1 text-truncate me-2">
+                                                    <span>{{ collaborator.emailAddress }}</span>
+                                                    <small class="d-block text-muted">{{ collaborator.role }}</small>
+                                                </div>
+                                                <button class="btn btn-sm py-0 px-1" 
+                                                        onclick="removeSpecificCollaborator('{{ file.id }}', '{{ collaborator.emailAddress }}')">
+                                                    <i class="bi bi-x-circle text-danger" style="font-size: 0.8rem;"></i>
+                                                </button>
+                                            </li>
+                                            {% if not loop.last %}<li><hr class="dropdown-divider my-1"></li>{% endif %}
+                                        {% endfor %}
+                                    </ul>
+                                </div>
                             {% else %}
-                            <span class="text-muted">No collaborators</span>
+                                <span class="text-muted">No collaborators</span>
                             {% endif %}
                         </td>
                     </tr>
