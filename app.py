@@ -28,7 +28,7 @@ flow = Flow.from_client_secrets_file(
         "openid",
         "https://www.googleapis.com/auth/drive"  # Full Drive access scope 
     ],
-    redirect_uri="https://app-diagrams-net.onrender.com/callback"
+    redirect_uri="https://marketingviaai.onrender.com/callback"
 )
 
 @app.route("/")
@@ -80,9 +80,15 @@ def callback():
         session["email"] = userinfo.get("email")
         
         # Render your existing landing page
-        return render_template('landing.html')
+        try:
+            # Try to render landing.html with detailed error logging
+            return render_template('landing.html')
+        except Exception as template_error:
+            print(f"Template rendering error: {template_error}")
+            return f"Authentication successful, but landing page could not be rendered. Error: {str(template_error)}", 500
         
     except Exception as e:
+
         print(f"Callback error: {e}")
         return f"Authentication error: {str(e)}", 500
 
