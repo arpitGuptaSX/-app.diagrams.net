@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Save Diagram Dialog</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+        
+        .dialog-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 24px;
+            width: 320px;
+        }
+        
+        .dialog-title {
+            text-align: center;
+            font-size: 18px;
+            color: #555;
+            margin-bottom: 24px;
+            font-weight: 500;
+        }
+        
+        .storage-options {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        
+        .storage-option {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .storage-option:hover {
+            background-color: #f8f8f8;
+        }
+        
+        .storage-icon {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .storage-icon img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        
+        .storage-label {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .decide-later {
+            text-align: center;
+        }
+        
+        .decide-later button {
+            background: none;
+            border: none;
+            color: #777;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 5px;
+        }
+        
+        .decide-later button:hover {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="dialog-container">
+        <h2 class="dialog-title">Save diagrams to:</h2>
+        
+        <div class="storage-options">
+            <!-- Google Drive -->
+            <div class="storage-option">
+                <a href="{{ url_for('login') }}" style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                    <div class="storage-icon">
+                        <img src="https://img.favpng.com/3/14/6/google-drive-google-logo-clip-art-png-favpng-yZJBLYuNfKBtQVdYUjch0nRjQ.jpg" alt="Google Drive">
+                    </div>
+                    <span class="storage-label">Google Drive</span>
+                </a>
+            </div>
+            
+            <!-- OneDrive -->
+            <div class="storage-option">
+                <div class="storage-icon">
+                    <img src="https://w7.pngwing.com/pngs/786/952/png-transparent-microsoft-onedrive-drive-office-365-logo-icon-thumbnail.png" alt="OneDrive">
+                </div>
+                <span class="storage-label">OneDrive</span>
+            </div>
+            
+            <!-- Device -->
+            <div class="storage-option">
+                <div class="storage-icon">
+                    <svg viewBox="0 0 24 24" width="40" height="40">
+                        <path d="M21 16H3V4h18v12zm0-14H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" fill="#9E9E9E"/>
+                    </svg>
+                </div>
+                <span class="storage-label">Device</span>
+            </div>
+            
+            <!-- Dropbox -->
+            <div class="storage-option">
+                <div class="storage-icon">
+                    <img src="https://w7.pngwing.com/pngs/414/942/png-transparent-dropbox-computer-icons-file-hosting-service-logo-500px-application-miscellaneous-blue-angle-thumbnail.png" alt="Dropbox">
+                </div>
+                <span class="storage-label">Dropbox</span>
+            </div>
+            
+            <!-- GitHub -->
+            <div class="storage-option">
+                <div class="storage-icon">
+                    <svg viewBox="0 0 24 24" width="40" height="40">
+                        <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.5-1.4-1.2-1.8-1.2-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6 0-3.2 0 0 1-.3 3.4 1.2a11.7 11.7 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.8.1 3.2.8.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1.1.9 2.3v3.3c0 .3.1.7.8.6A12 12 0 0 0 12 .3" fill="#181717"/>
+                    </svg>
+                </div>
+                <span class="storage-label">GitHub</span>
+            </div>
+            
+            <!-- GitLab -->
+            <div class="storage-option">
+                <div class="storage-icon">
+                    <svg viewBox="0 0 24 24" width="40" height="40">
+                        <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 0 1-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 0 1 4.82 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0 1 18.6 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.51L23 13.45a.84.84 0 0 1-.35.94z" fill="#FC6D26"/>
+                        <path d="M8.15 9.65l3.85 11.9-10.65-7.81c-.3-.22-.4-.6-.3-.94l1.22-3.78 2.44-7.51a.42.42 0 0 1 .11-.18.43.43 0 0 1 .58 0c.06.05.09.11.11.18l2.64 8.14z" fill="#E24329"/>
+                        <path d="M15.85 9.65l-3.85 11.9 10.65-7.81c.3-.22.4-.6.3-.94l-1.22-3.78-2.44-7.51a.42.42 0 0 0-.11-.18.43.43 0 0 0-.58 0 .42.42 0 0 0-.11.18l-2.64 8.14z" fill="#E24329"/>
+                        <path d="M8.15 9.65h7.7L12 21.55 8.15 9.65z" fill="#FC6D26"/>
+                    </svg>
+                </div>
+                <span class="storage-label">GitLab</span>
+            </div>
+        </div>
+        
+        <div class="decide-later">
+            <button>Decide later</button>
+        </div>
+    </div>
+</body>
+</html>
