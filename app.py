@@ -82,7 +82,7 @@ def callback():
         # Render your existing landing page
         try:
             # Try to render landing.html with detailed error logging
-            return render_template('templates/landing.html')
+            return render_template('landing.html')
         except Exception as template_error:
             print(f"Template rendering error: {template_error}")
             return f"Authentication successful, but landing page could not be rendered. Error: {str(template_error)}", 500
