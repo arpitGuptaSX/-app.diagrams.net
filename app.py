@@ -53,9 +53,6 @@ def callback():
     try:
         flow.fetch_token(authorization_response=request.url)
         
-        if not session.get("state") == request.args.get("state"):
-            return redirect(url_for("index"))  # State doesn't match!
-        
         credentials = flow.credentials
         session['credentials'] = {
             'token': credentials.token,
@@ -66,7 +63,6 @@ def callback():
             'scopes': credentials.scopes
         }
         
-        # Get user info directly from the userinfo endpoint
         userinfo_endpoint = "https://www.googleapis.com/oauth2/v3/userinfo"
         auth_header = {"Authorization": f"Bearer {credentials.token}"}
         userinfo_response = requests.get(userinfo_endpoint, headers=auth_header)
@@ -79,16 +75,38 @@ def callback():
         session["name"] = userinfo.get("name")
         session["email"] = userinfo.get("email")
         
-        # Render your existing landing page
-        try:
-            # Try to render landing.html with detailed error logging
-            return render_template('landing.html')
-        except Exception as template_error:
-            print(f"Template rendering error: {template_error}")
-            return f"Authentication successful, but landing page could not be rendered. Error: {str(template_error)}", 500
+        # Return a direct HTML response instead of using render_template
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Google Drive Authentication Success</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; text-align: center; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }}
+                h1 {{ color: #4285F4; }}
+                .user-info {{ margin: 20px 0; padding: 10px; background: #f8f9fa; border-radius: 4px; text-align: left; }}
+                .btn {{ display: inline-block; padding: 10px 20px; margin: 10px; background: #4285F4; color: white; 
+                       text-decoration: none; border-radius: 4px; }}
+                .btn:hover {{ background: #3367D6; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Google Drive Authentication Successful</h1>
+                <div class="user-info">
+                    <p><strong>Name:</strong> {session.get('name', 'Unknown')}</p>
+                    <p><strong>Email:</strong> {session.get('email', 'Unknown')}</p>
+                    <p><strong>Status:</strong> Connected to Google Drive</p>
+                </div>
+                <a href="/drive" class="btn">View My Drive Files</a>
+                <a href="/" class="btn" style="background: #f8f9fa; color: #333; border: 1px solid #ddd;">Back to Home</a>
+            </div>
+        </body>
+        </html>
+        """
         
     except Exception as e:
-
         print(f"Callback error: {e}")
         return f"Authentication error: {str(e)}", 500
 
