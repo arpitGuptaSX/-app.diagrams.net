@@ -28,7 +28,7 @@ flow = Flow.from_client_secrets_file(
         "openid",
         "https://www.googleapis.com/auth/drive"  # Full Drive access scope 
     ],
-    redirect_uri="https://app-diagrams-net.onrender.com/callback"
+    redirect_uri="https://marketingviaai.onrender.com/callback"
 )
 
 @app.route("/")
@@ -66,7 +66,7 @@ def callback():
             'scopes': credentials.scopes
         }
         
-        # Get user info directly from the userinfo endpoint instead of decoding the id_token
+        # Get user info directly from the userinfo endpoint
         userinfo_endpoint = "https://www.googleapis.com/oauth2/v3/userinfo"
         auth_header = {"Authorization": f"Bearer {credentials.token}"}
         userinfo_response = requests.get(userinfo_endpoint, headers=auth_header)
@@ -79,12 +79,12 @@ def callback():
         session["name"] = userinfo.get("name")
         session["email"] = userinfo.get("email")
         
-        return redirect(url_for("index"))
+        # Render your existing landing page
+        return render_template('landing.html')
         
     except Exception as e:
         print(f"Callback error: {e}")
         return f"Authentication error: {str(e)}", 500
-
 
 @app.route("/drive")
 def drive():
