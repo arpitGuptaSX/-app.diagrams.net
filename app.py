@@ -1,676 +1,574 @@
-<!DOCTYPE html>
-<html>
+from flask import Flask, render_template, url_for, session, redirect, request, jsonify, send_file
+from google_auth_oauthlib.flow import Flow
+from pip._vendor import cachecontrol
+import google.auth.transport.requests
+from google.oauth2 import id_token
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+import os
+import io
+import pathlib
+import requests
+import json
+import google.oauth2.credentials
+import tempfile
+import zipfile
+        
+app = Flask(__name__)
+app.secret_key = "random-secret-key"  
 
-<head>
-    <title>Google Drive Files</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
-    <style>
-        .action-panel {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
+# Google OAuth2 credentials
+CLIENT_SECRETS_FILE = "client_secret.json"  # Download this from GCP
+GOOGLE_CLIENT_ID = "9792465820-qnvrp2qh51v9ssbeehgmn819h3s88641.apps.googleusercontent.com" # Replace with your own client ID from GCP
+
+# OAuth2 configuration with Drive scope
+flow = Flow.from_client_secrets_file(
+    client_secrets_file=CLIENT_SECRETS_FILE,
+        scopes=[
+        "https://www.googleapis.com/auth/userinfo.profile", 
+        "https://www.googleapis.com/auth/userinfo.email", 
+        "openid",
+        "https://www.googleapis.com/auth/drive"  # Full Drive access scope 
+    ],
+    redirect_uri="https://app-diagrams-net.onrender.com/callback"
+)
+
+@app.route("/")
+def index():
+    return render_template('index.html')
+
+@app.route("/login")
+def login():
+    authorization_url, state = flow.authorization_url(
+        # Enable offline access so we can get a refresh token
+        access_type='offline',
+        # Enable incremental authorization
+        include_granted_scopes='true',
+        # Force the consent prompt to ensure we get a refresh token
+        prompt='consent'
+    )
+    session["state"] = state
+    return redirect(authorization_url)
+
+@app.route("/callback")
+def callback():
+    try:
+        flow.fetch_token(authorization_response=request.url)
+        
+        if not session.get("state") == request.args.get("state"):
+            return redirect(url_for("index"))  # State doesn't match!
+        
+        credentials = flow.credentials
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
         }
+        
+        # Get user info directly from the userinfo endpoint
+        userinfo_endpoint = "https://www.googleapis.com/oauth2/v3/userinfo"
+        auth_header = {"Authorization": f"Bearer {credentials.token}"}
+        userinfo_response = requests.get(userinfo_endpoint, headers=auth_header)
+        
+        if userinfo_response.status_code != 200:
+            return "Error fetching user info", 500
+            
+        userinfo = userinfo_response.json()
+        session["google_id"] = userinfo.get("sub")
+        session["name"] = userinfo.get("name")
+        session["email"] = userinfo.get("email")
+        
+        # Render your existing landing page
+        try:
+            # Try to render landing.html with detailed error logging
+            return render_template('landing.html')
+        except Exception as template_error:
+            print(f"Template rendering error: {template_error}")
+            return f"Authentication successful, but landing page could not be rendered. Error: {str(template_error)}", 500
+        
+    except Exception as e:
 
-        .checkbox-col {
-            width: 40px;
-        }
-    </style>
-</head>
+        print(f"Callback error: {e}")
+        return f"Authentication error: {str(e)}", 500
 
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="/">Diagrams.net</a>
-            <div class="navbar-nav ms-auto">
-                {% if session.get('email') %}
-                <span class="nav-link text-light">{{ session.get('email') }}</span>
-                <a class="nav-link" href="/logout">Logout</a>
-                {% else %}
-                <a class="nav-link" href="/login">Login</a>
-                {% endif %}
-            </div>
-        </div>
-    </nav>
-
-    <div class="container mt-5">
-        {% if session.get('email') %}
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2>Google Drive File Manager</h2>
-            <div>
-                <button class="btn btn-primary" onclick="window.location.reload()">
-                    <i class="bi bi-arrow-clockwise"></i> Refresh Files
-                </button>
-            </div>
-        </div>
-
-        <!-- Action Panel -->
-        <div class="action-panel">
-            <div class="row g-3">
-
-                <div class="col-md-6">
-                    <form id="upload-form" enctype="multipart/form-data">
-                        <div class="input-group">
-                            <input type="file" class="form-control" id="file-upload" name="file">
-                            <button class="btn btn-primary" type="button" onclick="uploadFile()">
-                                <i class="bi bi-cloud-upload"></i> Upload
-                            </button>
-                        </div>
-                    </form>
-                    <div class="mt-2" id="upload-progress" style="display:none;">
-                        <div class="progress">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%">
-                            </div>
-                        </div>
-                    </div>
-                </div>
+@app.route("/drive")
+def drive():
+    if 'credentials' not in session:
+        return redirect(url_for('login'))
+    
+    # Build the Drive API service
+    try:
+        credentials = google.oauth2.credentials.Credentials(**session['credentials'])
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        # Call the Drive API to list files
+        results = drive_service.files().list(
+            pageSize=100,
+            fields="nextPageToken, files(id, name, mimeType, modifiedTime, size)",
+            orderBy="modifiedTime desc"
+        ).execute()
+        
+        files = results.get('files', [])
+        
+        # For each file, get its collaborators
+        for file in files:
+            try:
+                # Get permissions (collaborators) for this file
+                permissions = drive_service.permissions().list(
+                    fileId=file['id'],
+                    fields="permissions(id,emailAddress,role,displayName)"
+                ).execute()
                 
-
-                <div class="col-md-6">
-                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                       
-                        <button class="btn btn-secondary" onclick="downloadAsZip()">
-                            <i class="bi bi-file-earmark-zip"></i> Download as ZIP
-                        </button>
-                        <button class="btn btn-warning" onclick="removeAllCollaborators()">
-                            <i class="bi bi-people-fill"></i> Remove All Collaborators
-                        </button>
-                        <button class="btn btn-danger" onclick="deleteSelected()">
-                            <i class="bi bi-trash"></i> Delete Selected
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <hr>
-
-        </div>
-
-        {% if files %}
-        <div class="table-responsive">
-            <table class="table table-striped table-hover" id="files-table">
-                <thead class="table-dark">
-                    <tr>
-                        <th class="checkbox-col">
-                            <input type="checkbox" id="select-all" class="form-check-input"
-                                onchange="toggleSelectAll()">
-                        </th>
-                        <th>Name</th>
-                        <th>Type</th>
-                        <th>Last Modified</th>
-                        <th>Size</th>
-                        <th>Actions</th>
-                        <th>Collaborators</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for file in files %}
-                    <tr>
-                        <td>
-                            <input type="checkbox" class="form-check-input file-checkbox" data-file-id="{{ file.id }}">
-                        </td>
-                        <td>{{ file.name }}</td>
-                        <td>
-                            {% if 'folder' in file.mimeType %}
-                            <i class="bi bi-folder-fill text-warning"></i> Folder
-                            {% else %}
-                            <i class="bi bi-file-earmark-text"></i> {{ file.mimeType.split('/')[-1] }}
-                            {% endif %}
-                        </td>
-                        <td>{{ file.modifiedTime.split('T')[0] }}</td>
-                        <td>
-                            {% if file.size %}
-                            {{ (file.size|int / 1024)|round(1) }} KB
-                            {% else %}
-                            -
-                            {% endif %}
-                        </td>
-                        <td>
-                            <div class="btn-group btn-group-sm">
-                                <a href="https://drive.google.com/file/d/{{ file.id }}/view" target="_blank"
-                                    class="btn btn-outline-primary">
-                                    <i class="bi bi-eye"></i>
-                                </a>
-                                <button class="btn btn-outline-danger" onclick="deleteFile('{{ file.id }}')">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                                <button class="btn btn-outline-success" onclick="showAddCollaborator('{{ file.id }}')">
-                                    <i class="bi bi-share"></i>
-                                </button>
-                                <button class="btn btn-outline-warning" onclick="confirmRemoveAllCollaborators('{{ file.id }}')">
-                                    <i class="bi bi-people-fill"></i>
-                                </button>
-                            </div>
-                        </td>
-                        <td>
-                            {% if file.collaborators %}
-                                <div class="dropdown">
-                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                        {{ file.collaborators|length }} Collaborator(s)
-                                    </button>
-                                    <ul class="dropdown-menu p-2" style="max-width: 250px;">
-                                        {% for collaborator in file.collaborators %}
-                                            <li class="d-flex align-items-center py-1">
-                                                <div class="flex-grow-1 text-truncate me-2">
-                                                    <span>{{ collaborator.emailAddress }}</span>
-                                                    <small class="d-block text-muted">{{ collaborator.role }}</small>
-                                                </div>
-                                                <button class="btn btn-sm py-0 px-1" 
-                                                        onclick="removeSpecificCollaborator('{{ file.id }}', '{{ collaborator.emailAddress }}')">
-                                                    <i class="bi bi-x-circle text-danger" style="font-size: 0.8rem;"></i>
-                                                </button>
-                                            </li>
-                                            {% if not loop.last %}<li><hr class="dropdown-divider my-1"></li>{% endif %}
-                                        {% endfor %}
-                                    </ul>
-                                </div>
-                            {% else %}
-                                <span class="text-muted">No collaborators</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="alert alert-info">
-            No files found in your Google Drive.
-        </div>
-        {% endif %}
-        {% else %}
-        <div class="alert alert-warning">
-            Please <a href="/login">login</a> to view your Google Drive files.
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Toast Notifications -->
-    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
-        <div id="toast-container"></div>
-    </div>
-
-    <!-- Add collaborator modal -->
-    <div class="modal fade" id="collaboratorModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Add Collaborator</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="modal-email" class="form-label">Email address</label>
-                        <input type="email" class="form-control" id="modal-email">
-                        <input type="hidden" id="modal-file-id">
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="addSingleCollaborator()">Add
-                        Collaborator</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Remove All Collaborators Confirmation Modal -->
-    <div class="modal fade" id="removeAllCollaboratorsModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Remove All Collaborators</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Are you sure you want to remove <strong>ALL</strong> collaborators from this file?</p>
-                    <p>This will remove everyone except you (the owner).</p>
-                    <input type="hidden" id="remove-all-file-id">
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-danger" onclick="executeRemoveAllCollaborators()">
-                        <i class="bi bi-exclamation-triangle"></i> Remove All Collaborators
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Get all selected file IDs
-        function getSelectedFileIds() {
-            const checkboxes = document.querySelectorAll('.file-checkbox:checked');
-            return Array.from(checkboxes).map(checkbox => checkbox.getAttribute('data-file-id'));
+                # Add permissions to the file object
+                file['collaborators'] = permissions.get('permissions', [])
+            except Exception as e:
+                print(f"Error getting permissions for file {file['id']}: {str(e)}")
+                file['collaborators'] = []
+        
+        # Update credentials in session in case they were refreshed
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
         }
+        
+        # Check if this is an API request
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"files": files})
+        
+        return render_template('drive.html', files=files)
+    
+    except Exception as e:
+        print(f"Drive access error: {e}")
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"error": str(e)}), 500
+        return f"Error accessing Drive: {str(e)}", 500
 
-        // Toggle select all checkbox functionality
-        function toggleSelectAll() {
-            const selectAll = document.getElementById('select-all');
-            const fileCheckboxes = document.querySelectorAll('.file-checkbox');
-
-            fileCheckboxes.forEach(checkbox => {
-                checkbox.checked = selectAll.checked;
-            });
+@app.route("/drive/add_collaborator", methods=["POST"])
+def add_collaborator():
+    if 'credentials' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    data = request.get_json()
+    file_id = data.get("file_id")
+    email = data.get("email")
+    
+    if not file_id or not email:
+        return jsonify({"error": "Missing required parameters"}), 400
+    
+    try:
+        credentials = google.oauth2.credentials.Credentials(**session['credentials'])
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        permission = {"type": "user", "role": "writer", "emailAddress": email}
+        drive_service.permissions().create(
+            fileId=file_id, 
+            body=permission,
+            sendNotificationEmail=True
+        ).execute()
+        
+        # Update credentials in session
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
         }
-
-        // Download selected files as ZIP
-        function downloadAsZip() {
-            const fileIds = getSelectedFileIds();
-
-            if (fileIds.length === 0) {
-                showToast('Please select at least one file', 'warning');
-                return;
-            }
-
-            showToast('Preparing ZIP file for download...', 'info');
-
-            // Create a form to submit the request
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.action = '/drive/download_zip';
-            form.style.display = 'none';
-
-            // Create a hidden input for the file IDs
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'file_ids';
-            input.value = JSON.stringify(fileIds);
-            form.appendChild(input);
-
-            // Add the form to the document and submit it
-            document.body.appendChild(form);
-            form.submit();
-
-            // Clean up
-            setTimeout(() => {
-                document.body.removeChild(form);
-            }, 2000);
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Added {email} as collaborator to {file_id}"
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+        
+@app.route("/drive/remove_collaborator", methods=["POST"])
+def remove_collaborator():
+    if 'credentials' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    data = request.get_json()
+    file_id = data.get("file_id")
+    email = data.get("email")
+    
+    if not file_id or not email:
+        return jsonify({"error": "Missing required parameters"}), 400
+    
+    try:
+        credentials = google.oauth2.credentials.Credentials(**session['credentials'])
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        # List permissions to find the right one
+        permissions_response = drive_service.permissions().list(
+            fileId=file_id,
+            fields="permissions(id,emailAddress)"
+        ).execute()
+        
+        permissions = permissions_response.get("permissions", [])
+        print(f"Found permissions: {permissions}")
+        
+        permission_id = None
+        email_lower = email.lower()  # Convert to lowercase for case-insensitive comparison
+        
+        for perm in permissions:
+            perm_email = perm.get("emailAddress", "").lower()
+            if perm_email == email_lower:
+                permission_id = perm["id"]
+                break
+        
+        if not permission_id:
+            return jsonify({"error": f"Email {email} not found as a collaborator"}), 404
+        
+        # Try using supportsAllDrives parameter
+        drive_service.permissions().delete(
+            fileId=file_id, 
+            permissionId=permission_id,
+            supportsAllDrives=True
+        ).execute()
+        
+        # Update credentials in session
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
         }
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Removed {email} from {file_id}"
+        })
+    
+    except Exception as e:
+        import traceback
+        print(f"Error removing collaborator: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
 
-        // Function to show the remove all collaborators confirmation modal
-        function confirmRemoveAllCollaborators(fileId) {
-            document.getElementById('remove-all-file-id').value = fileId;
-            const modal = new bootstrap.Modal(document.getElementById('removeAllCollaboratorsModal'));
-            modal.show();
+# Route for deleting files
+@app.route("/drive/delete_file", methods=["POST"])
+def delete_file():
+    if 'credentials' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    data = request.get_json()
+    file_id = data.get("file_id")
+    
+    if not file_id:
+        return jsonify({"error": "Missing file_id parameter"}), 400
+    
+    try:
+        credentials = google.oauth2.credentials.Credentials(**session['credentials'])
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        drive_service.files().delete(fileId=file_id).execute()
+        
+        # Update credentials in session
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
         }
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Deleted file/folder: {file_id}"
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-        // Function to remove all collaborators from selected files
-        function removeAllCollaborators() {
-            const fileIds = getSelectedFileIds();
-
-            if (fileIds.length === 0) {
-                showToast('Please select at least one file', 'warning');
-                return;
-            }
-
-            if (!confirm(`Are you sure you want to remove ALL collaborators from ${fileIds.length} selected file(s)?`)) {
-                return;
-            }
-
-            // Show a progress toast
-            showToast(`Removing all collaborators from ${fileIds.length} file(s)...`, 'info');
-
-            const promises = fileIds.map(fileId => {
-                return fetch('/drive/remove_all_collaborators', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        file_id: fileId
-                    })
-                })
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP error ${response.status}`);
-                        }
-                        return response.json();
-                    });
-            });
-
-            Promise.all(promises)
-                .then(results => {
-                    // Calculate total removed
-                    const totalRemoved = results.reduce((acc, result) => acc + (result.removed_count || 0), 0);
-                    showToast(`Removed ${totalRemoved} collaborators from ${fileIds.length} file(s)`);
-
-                    // Reload the page after a short delay
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1500);
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showToast(`Error removing collaborators: ${error.message}`, 'danger');
-                });
+# Route for uploading files
+@app.route("/drive/upload", methods=["POST"])
+def upload_file():
+    if 'credentials' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part in the request"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    
+    parent_folder = request.form.get('parent_folder', None)
+    
+    try:
+        credentials = google.oauth2.credentials.Credentials(**session['credentials'])
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        # Save file temporarily
+        temp_file = tempfile.NamedTemporaryFile(delete=False)
+        temp_path = temp_file.name
+        temp_file.close()
+        file.save(temp_path)
+        
+        # Get mime type
+        mime_type = file.content_type or 'application/octet-stream'
+        
+        # Prepare metadata
+        file_metadata = {"name": file.filename}
+        if parent_folder:
+            file_metadata["parents"] = [parent_folder]
+        
+        # Upload file
+        media = MediaFileUpload(temp_path, mimetype=mime_type)
+        uploaded_file = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields="id,name,mimeType,webViewLink"
+        ).execute()
+        
+        # Remove temporary file
+        os.unlink(temp_path)
+        
+        # Update credentials in session
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
         }
+        
+        return jsonify({
+            "success": True,
+            "message": "File uploaded successfully",
+            "file": uploaded_file
+        })
+    
+    except Exception as e:
+        # Make sure to remove temp file even if upload fails
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        return jsonify({"error": str(e)}), 500
 
-        // Function to execute removing all collaborators for a single file
-        function executeRemoveAllCollaborators() {
-            const fileId = document.getElementById('remove-all-file-id').value;
 
-            fetch('/drive/remove_all_collaborators', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    file_id: fileId
-                })
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    showToast(`Removed ${data.removed_count} collaborators successfully`);
-                    bootstrap.Modal.getInstance(document.getElementById('removeAllCollaboratorsModal')).hide();
+
+def get_drive_service():
+    """Get an authenticated Drive service using credentials from the session"""
+    if 'credentials' not in session:
+        return None  # or raise an exception
+    
+    try:
+        credentials = google.oauth2.credentials.Credentials(**session['credentials'])
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        # Update credentials in session in case they were refreshed
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
+        }
+        
+        return drive_service
+    
+    except Exception as e:
+        print(f"Error getting Drive service: {e}")
+        return None  # or raise an exception
+
+
+
+@app.route("/drive/download_zip", methods=["POST"])
+def download_zip():
+    """Download selected files as a ZIP archive"""
+    if 'credentials' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    drive_service = get_drive_service()
+    if not drive_service:
+        return jsonify({"error": "Failed to initialize Drive service"}), 500
+    
+    # Get request data
+    try:
+        # Handle both form submission and JSON data
+        if request.content_type and 'application/json' in request.content_type:
+            data = request.get_json() or {}
+            file_ids = data.get("file_ids", [])
+        else:
+            file_ids = request.form.getlist('file_ids') or []
+            # Handle case where file_ids might be a JSON string
+            if len(file_ids) == 1 and file_ids[0].startswith('['):
+                try:
+                    file_ids = json.loads(file_ids[0])
+                except:
+                    pass
+    except Exception as e:
+        return jsonify({"error": f"Error parsing request: {str(e)}"}), 400
+    
+    if not file_ids:
+        return jsonify({"error": "No files selected"}), 400
+    
+    # Create a ZIP file in memory
+    memory_file = io.BytesIO()
+    try:
+        with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_id in file_ids:
+                try:
+                    # Get file metadata
+                    file_metadata = drive_service.files().get(fileId=file_id).execute()
+                    file_name = file_metadata.get('name', 'unnamed-file')
+                    mime_type = file_metadata.get('mimeType', '')
                     
-                    // Reload the page after a short delay
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1000);
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showToast(`Error removing collaborators: ${error.message}`, 'danger');
-                });
-        }
-
-        // Add this function to your JavaScript section
-        function removeSpecificCollaborator(fileId, email) {
-            if (!confirm(`Are you sure you want to remove ${email} from this file?`)) {
-                return;
-            }
-
-            fetch('/drive/remove_collaborator', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    file_id: fileId,
-                    email: email
-                })
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error ${response.status}`);
+                    # Skip folders - they can't be downloaded directly
+                    if mime_type == 'application/vnd.google-apps.folder':
+                        print(f"Skipping folder: {file_name}")
+                        continue
+                    
+                    # Handle Google Docs, Sheets, Slides, etc.
+                    export_formats = {
+                        'application/vnd.google-apps.document': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'application/vnd.google-apps.spreadsheet': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        'application/vnd.google-apps.presentation': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                        'application/vnd.google-apps.drawing': 'application/pdf',
                     }
-                    return response.json();
-                })
-                .then(data => {
-                    showToast(`Removed ${email} as collaborator`);
-
-                    // Reload the page to refresh the collaborator list
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1000);
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showToast(`Error removing collaborator: ${error.message}`, 'danger');
-                });
-        }
-
-        // Show toast notification
-        function showToast(message, type = 'success') {
-            const container = document.getElementById('toast-container');
-            const toastId = 'toast-' + Date.now();
-
-            const toastHtml = `
-                <div id="${toastId}" class="toast align-items-center text-white bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true">
-                    <div class="d-flex">
-                        <div class="toast-body">
-                            ${message}
-                        </div>
-                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-                    </div>
-                </div>
-            `;
-
-            container.insertAdjacentHTML('beforeend', toastHtml);
-            const toastElement = bootstrap.Toast.getOrCreateInstance(document.getElementById(toastId));
-            toastElement.show();
-
-            // Auto remove after shown
-            const toast = document.getElementById(toastId);
-            toast.addEventListener('hidden.bs.toast', () => {
-                toast.remove();
-            });
-        }
-
-        // Add collaborator to selected files
-        function addCollaborator() {
-            const fileIds = getSelectedFileIds();
-            const email = document.getElementById('collaborator-email').value.trim();
-
-            if (!email) {
-                showToast('Please enter an email address', 'danger');
-                return;
-            }
-
-            if (fileIds.length === 0) {
-                showToast('Please select at least one file', 'warning');
-                return;
-            }
-
-            const promises = fileIds.map(fileId => {
-                return fetch('/drive/add_collaborator', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        file_id: fileId,
-                        email: email
-                    })
-                })
-                    .then(response => response.json());
-            });
-
-            Promise.all(promises)
-                .then(results => {
-                    showToast(`Added ${email} as collaborator to ${fileIds.length} file(s)`);
-                    document.getElementById('collaborator-email').value = '';
-                })
-                .catch(error => {
-                    showToast('Error adding collaborator: ' + error, 'danger');
-                });
-        }
-
-        // Show modal for adding collaborator to single file
-        function showAddCollaborator(fileId) {
-            document.getElementById('modal-file-id').value = fileId;
-            document.getElementById('modal-email').value = '';
-            const modal = new bootstrap.Modal(document.getElementById('collaboratorModal'));
-            modal.show();
-        }
-
-        // Add collaborator to single file (from modal)
-        function addSingleCollaborator() {
-            const fileId = document.getElementById('modal-file-id').value;
-            const email = document.getElementById('modal-email').value.trim();
-
-            if (!email) {
-                showToast('Please enter an email address', 'danger');
-                return;
-            }
-
-            fetch('/drive/add_collaborator', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    file_id: fileId,
-                    email: email
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    showToast(`Added ${email} as collaborator`);
-                    bootstrap.Modal.getInstance(document.getElementById('collaboratorModal')).hide();
-                })
-                .catch(error => {
-                    showToast('Error adding collaborator: ' + error, 'danger');
-                });
-        }
-
-        // Updated removeCollaborator function with better error handling and page reload
-        function removeCollaborator() {
-            const fileIds = getSelectedFileIds();
-            const email = document.getElementById('remove-email').value.trim();
-
-            if (!email) {
-                showToast('Please enter an email address', 'danger');
-                return;
-            }
-
-            if (fileIds.length === 0) {
-                showToast('Please select at least one file', 'warning');
-                return;
-            }
-
-            if (!confirm(`Are you sure you want to remove ${email} from ${fileIds.length} file(s)?`)) {
-                return;
-            }
-
-            // Show a progress toast
-            showToast(`Removing collaborator from ${fileIds.length} file(s)...`, 'info');
-
-            const promises = fileIds.map(fileId => {
-                return fetch('/drive/remove_collaborator', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        file_id: fileId,
-                        email: email
-                    })
-                })
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP error ${response.status}`);
+                    
+                    file_content = io.BytesIO()
+                    
+                    if mime_type.startswith('application/vnd.google-apps') and mime_type in export_formats:
+                        # This is a Google Doc/Sheet/Slide, which needs to be exported
+                        export_mime_type = export_formats[mime_type]
+                        
+                        # Set appropriate file extension
+                        extensions = {
+                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+                            'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+                            'application/pdf': '.pdf',
                         }
-                        return response.json();
-                    });
-            });
+                        
+                        if export_mime_type in extensions:
+                            if not file_name.endswith(extensions[export_mime_type]):
+                                file_name += extensions[export_mime_type]
+                        
+                        # Export the file
+                        print(f"Exporting {file_name} as {export_mime_type}")
+                        download_request = drive_service.files().export_media(fileId=file_id, mimeType=export_mime_type)
+                        downloader = MediaIoBaseDownload(file_content, download_request)
+                    else:
+                        # Regular file, download directly
+                        print(f"Downloading {file_name} ({mime_type})")
+                        download_request = drive_service.files().get_media(fileId=file_id)
+                        downloader = MediaIoBaseDownload(file_content, download_request)
+                    
+                    # Download the file
+                    done = False
+                    while not done:
+                        status, done = downloader.next_chunk()
+                        print(f"Download progress: {int(status.progress() * 100)}%")
+                    
+                    # Reset the file pointer to the beginning
+                    file_content.seek(0)
+                    
+                    # Add file to the ZIP
+                    zf.writestr(file_name, file_content.read())
+                    print(f"Added {file_name} to ZIP")
+                    
+                except Exception as e:
+                    # Log error but continue with other files
+                    print(f"Error downloading file {file_id}: {str(e)}")
+        
+        # Prepare the ZIP file for download
+        memory_file.seek(0)
+        
+        # Set the filename to include the current date/time
+        import datetime
+        current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"drive_files_{current_time}.zip"
+        
+        return send_file(
+            memory_file,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error creating ZIP: {str(e)}"}), 500
 
-            Promise.all(promises)
-                .then(results => {
-                    showToast(`Removed ${email} from ${fileIds.length} file(s)`);
-                    document.getElementById('remove-email').value = '';
+@app.route("/drive/remove_all_collaborators", methods=["POST"])
+def remove_all_collaborators():
+    """Remove all collaborators from a file except the owner"""
+    if 'credentials' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    drive_service = get_drive_service()
+    if not drive_service:
+        return jsonify({"error": "Failed to initialize Drive service"}), 500
+    
+    # Get request data
+    data = request.get_json()
+    file_id = data.get("file_id")
+    
+    if not file_id:
+        return jsonify({"error": "Missing file_id parameter"}), 400
+    
+    try:
+        # Get all permissions for the file
+        permissions = drive_service.permissions().list(
+            fileId=file_id,
+            fields="permissions(id,emailAddress,role)"
+        ).execute().get("permissions", [])
+        
+        removed_count = 0
+        owner_email = None
+        
+        # Find the owner's email first
+        for perm in permissions:
+            if perm.get("role") == "owner":
+                owner_email = perm.get("emailAddress")
+                break
+        
+        # Then remove all non-owner permissions
+        for perm in permissions:
+            # Skip the owner permission
+            if perm.get("role") == "owner":
+                continue
+                
+            # Delete all non-owner permissions
+            drive_service.permissions().delete(
+                fileId=file_id, 
+                permissionId=perm["id"],
+                supportsAllDrives=True  # Add this parameter to support shared drives
+            ).execute()
+            removed_count += 1
+        
+        return jsonify({
+            "success": True,
+            "message": f"Removed {removed_count} collaborators from file {file_id}",
+            "removed_count": removed_count,
+            "owner": owner_email
+        })
+    except Exception as e:
+        import traceback
+        print(f"Error removing collaborators: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
 
-                    // Reload the page to reflect changes
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1000);
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showToast(`Error removing collaborator: ${error.message}`, 'danger');
-                });
-        }
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for('index'))
 
-        // Delete selected files
-        function deleteSelected() {
-            const fileIds = getSelectedFileIds();
-
-            if (fileIds.length === 0) {
-                showToast('Please select at least one file', 'warning');
-                return;
-            }
-
-            if (!confirm(`Are you sure you want to delete ${fileIds.length} selected file(s)?`)) {
-                return;
-            }
-
-            const promises = fileIds.map(fileId => {
-                return fetch('/drive/delete', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        file_id: fileId
-                    })
-                })
-                    .then(response => response.json());
-            });
-
-            Promise.all(promises)
-                .then(results => {
-                    showToast(`Deleted ${fileIds.length} file(s)`);
-                    window.location.reload();
-                })
-                .catch(error => {
-                    showToast('Error deleting files: ' + error, 'danger');
-                });
-        }
-
-        // Delete a single file
-        function deleteFile(fileId) {
-            if (!confirm('Are you sure you want to delete this file?')) {
-                return;
-            }
-
-            fetch('/drive/delete', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    file_id: fileId
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    showToast('File deleted successfully');
-                    window.location.reload();
-                })
-                .catch(error => {
-                    showToast('Error deleting file: ' + error, 'danger');
-                });
-        }
-
-        // Upload a file
-        function uploadFile() {
-            const fileInput = document.getElementById('file-upload');
-
-            if (!fileInput.files || fileInput.files.length === 0) {
-                showToast('Please select a file', 'warning');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-
-            // Show progress indicator
-            document.getElementById('upload-progress').style.display = 'block';
-
-            fetch('/drive/upload', {
-                method: 'POST',
-                body: formData
-            })
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('upload-progress').style.display = 'none';
-                    showToast('File uploaded successfully');
-                    window.location.reload();
-                })
-                .catch(error => {
-                    document.getElementById('upload-progress').style.display = 'none';
-                    showToast('Error uploading file: ' + error, 'danger');
-                });
-        }
-    </script>
-</body>
-
-</html>
+if __name__ == "__main__":
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # Only for development
+    app.run(debug=True)
