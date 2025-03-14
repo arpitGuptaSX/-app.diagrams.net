@@ -6,6 +6,7 @@ from google.oauth2 import id_token
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import os
+import io
 import pathlib
 import requests
 import json
