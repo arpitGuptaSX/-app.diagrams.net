@@ -1,4 +1,4 @@
-from flask import Flask, render_template, url_for, session, redirect, request, jsonify
+from flask import Flask, render_template, url_for, session, redirect, request, jsonify, send_file
 from google_auth_oauthlib.flow import Flow
 from pip._vendor import cachecontrol
 import google.auth.transport.requests
@@ -386,6 +386,8 @@ def get_drive_service():
         return None  # or raise an exception
 
 
+
+# Then fix the download_zip function
 @app.route("/drive/download_zip", methods=["POST"])
 def download_zip():
     """Download selected files as a ZIP archive"""
@@ -425,25 +427,61 @@ def download_zip():
                     # Get file metadata
                     file_metadata = drive_service.files().get(fileId=file_id).execute()
                     file_name = file_metadata.get('name', 'unnamed-file')
+                    mime_type = file_metadata.get('mimeType', '')
                     
                     # Skip folders - they can't be downloaded directly
-                    if file_metadata.get('mimeType') == 'application/vnd.google-apps.folder':
+                    if mime_type == 'application/vnd.google-apps.folder':
+                        print(f"Skipping folder: {file_name}")
                         continue
                     
-                    # Download file content - FIX: Renamed variable to avoid conflict
-                    download_request = drive_service.files().get_media(fileId=file_id)
-                    file_content = io.BytesIO()
-                    downloader = MediaIoBaseDownload(file_content, download_request)
+                    # Handle Google Docs, Sheets, Slides, etc.
+                    export_formats = {
+                        'application/vnd.google-apps.document': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'application/vnd.google-apps.spreadsheet': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        'application/vnd.google-apps.presentation': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                        'application/vnd.google-apps.drawing': 'application/pdf',
+                    }
                     
+                    file_content = io.BytesIO()
+                    
+                    if mime_type.startswith('application/vnd.google-apps') and mime_type in export_formats:
+                        # This is a Google Doc/Sheet/Slide, which needs to be exported
+                        export_mime_type = export_formats[mime_type]
+                        
+                        # Set appropriate file extension
+                        extensions = {
+                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+                            'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+                            'application/pdf': '.pdf',
+                        }
+                        
+                        if export_mime_type in extensions:
+                            if not file_name.endswith(extensions[export_mime_type]):
+                                file_name += extensions[export_mime_type]
+                        
+                        # Export the file
+                        print(f"Exporting {file_name} as {export_mime_type}")
+                        request = drive_service.files().export_media(fileId=file_id, mimeType=export_mime_type)
+                        downloader = MediaIoBaseDownload(file_content, request)
+                    else:
+                        # Regular file, download directly
+                        print(f"Downloading {file_name} ({mime_type})")
+                        request = drive_service.files().get_media(fileId=file_id)
+                        downloader = MediaIoBaseDownload(file_content, request)
+                    
+                    # Download the file
                     done = False
                     while not done:
                         status, done = downloader.next_chunk()
+                        print(f"Download progress: {int(status.progress() * 100)}%")
                     
                     # Reset the file pointer to the beginning
                     file_content.seek(0)
                     
                     # Add file to the ZIP
                     zf.writestr(file_name, file_content.read())
+                    print(f"Added {file_name} to ZIP")
                     
                 except Exception as e:
                     # Log error but continue with other files
@@ -451,15 +489,23 @@ def download_zip():
         
         # Prepare the ZIP file for download
         memory_file.seek(0)
+        
+        # Set the filename to include the current date/time
+        import datetime
+        current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"drive_files_{current_time}.zip"
+        
         return send_file(
             memory_file,
             mimetype='application/zip',
             as_attachment=True,
-            download_name='drive_files.zip'
+            download_name=filename  # Use download_name for Flask 2.0+, otherwise use attachment_filename
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": f"Error creating ZIP: {str(e)}"}), 500
-        
+
 @app.route("/drive/remove_all_collaborators", methods=["POST"])
 def remove_all_collaborators():
     """Remove all collaborators from a file except the owner"""
