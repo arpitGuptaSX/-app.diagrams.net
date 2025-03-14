@@ -4,7 +4,7 @@ from pip._vendor import cachecontrol
 import google.auth.transport.requests
 from google.oauth2 import id_token
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import os
 import pathlib
 import requests
@@ -355,69 +355,118 @@ def upload_file():
         if 'temp_path' in locals() and os.path.exists(temp_path):
             os.unlink(temp_path)
         return jsonify({"error": str(e)}), 500
-# Add this to your existing Flask application
 
-import io
-import zipfile
-from flask import send_file
+
+
+def get_drive_service():
+    """Get an authenticated Drive service using credentials from the session"""
+    if 'credentials' not in session:
+        return None  # or raise an exception
+    
+    try:
+        credentials = google.oauth2.credentials.Credentials(**session['credentials'])
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        # Update credentials in session in case they were refreshed
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
+        }
+        
+        return drive_service
+    
+    except Exception as e:
+        print(f"Error getting Drive service: {e}")
+        return None  # or raise an exception
+
 
 @app.route("/drive/download_zip", methods=["POST"])
 def download_zip():
     """Download selected files as a ZIP archive"""
+    if 'credentials' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
     drive_service = get_drive_service()
+    if not drive_service:
+        return jsonify({"error": "Failed to initialize Drive service"}), 500
     
     # Get request data
-    data = request.get_json()
-    file_ids = data.get("file_ids", [])
+    try:
+        # Handle both form submission and JSON data
+        if request.content_type and 'application/json' in request.content_type:
+            data = request.get_json() or {}
+            file_ids = data.get("file_ids", [])
+        else:
+            file_ids = request.form.getlist('file_ids') or []
+            # Handle case where file_ids might be a JSON string
+            if len(file_ids) == 1 and file_ids[0].startswith('['):
+                try:
+                    file_ids = json.loads(file_ids[0])
+                except:
+                    pass
+    except Exception as e:
+        return jsonify({"error": f"Error parsing request: {str(e)}"}), 400
     
     if not file_ids:
         return jsonify({"error": "No files selected"}), 400
     
     # Create a ZIP file in memory
     memory_file = io.BytesIO()
-    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for file_id in file_ids:
-            try:
-                # Get file metadata
-                file_metadata = drive_service.files().get(fileId=file_id).execute()
-                file_name = file_metadata.get('name', 'unnamed-file')
-                
-                # Skip folders - they can't be downloaded directly
-                if file_metadata.get('mimeType') == 'application/vnd.google-apps.folder':
-                    continue
-                
-                # Download file content
-                request = drive_service.files().get_media(fileId=file_id)
-                file_content = io.BytesIO()
-                downloader = MediaIoBaseDownload(file_content, request)
-                
-                done = False
-                while not done:
-                    status, done = downloader.next_chunk()
-                
-                # Reset the file pointer to the beginning
-                file_content.seek(0)
-                
-                # Add file to the ZIP
-                zf.writestr(file_name, file_content.read())
-                
-            except Exception as e:
-                # Log error but continue with other files
-                print(f"Error downloading file {file_id}: {str(e)}")
-    
-    # Prepare the ZIP file for download
-    memory_file.seek(0)
-    return send_file(
-        memory_file,
-        mimetype='application/zip',
-        as_attachment=True,
-        download_name='drive_files.zip'
-    )
-
+    try:
+        with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_id in file_ids:
+                try:
+                    # Get file metadata
+                    file_metadata = drive_service.files().get(fileId=file_id).execute()
+                    file_name = file_metadata.get('name', 'unnamed-file')
+                    
+                    # Skip folders - they can't be downloaded directly
+                    if file_metadata.get('mimeType') == 'application/vnd.google-apps.folder':
+                        continue
+                    
+                    # Download file content
+                    request = drive_service.files().get_media(fileId=file_id)
+                    file_content = io.BytesIO()
+                    downloader = MediaIoBaseDownload(file_content, request)
+                    
+                    done = False
+                    while not done:
+                        status, done = downloader.next_chunk()
+                    
+                    # Reset the file pointer to the beginning
+                    file_content.seek(0)
+                    
+                    # Add file to the ZIP
+                    zf.writestr(file_name, file_content.read())
+                    
+                except Exception as e:
+                    # Log error but continue with other files
+                    print(f"Error downloading file {file_id}: {str(e)}")
+        
+        # Prepare the ZIP file for download
+        memory_file.seek(0)
+        return send_file(
+            memory_file,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='drive_files.zip'
+        )
+    except Exception as e:
+        return jsonify({"error": f"Error creating ZIP: {str(e)}"}), 500
+        
 @app.route("/drive/remove_all_collaborators", methods=["POST"])
 def remove_all_collaborators():
     """Remove all collaborators from a file except the owner"""
+    if 'credentials' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
     drive_service = get_drive_service()
+    if not drive_service:
+        return jsonify({"error": "Failed to initialize Drive service"}), 500
     
     # Get request data
     data = request.get_json()
@@ -428,23 +477,44 @@ def remove_all_collaborators():
     
     try:
         # Get all permissions for the file
-        permissions = drive_service.permissions().list(fileId=file_id).execute().get("permissions", [])
+        permissions = drive_service.permissions().list(
+            fileId=file_id,
+            fields="permissions(id,emailAddress,role)"
+        ).execute().get("permissions", [])
         
         removed_count = 0
+        owner_email = None
+        
+        # Find the owner's email first
+        for perm in permissions:
+            if perm.get("role") == "owner":
+                owner_email = perm.get("emailAddress")
+                break
+        
+        # Then remove all non-owner permissions
         for perm in permissions:
             # Skip the owner permission
             if perm.get("role") == "owner":
                 continue
                 
             # Delete all non-owner permissions
-            drive_service.permissions().delete(fileId=file_id, permissionId=perm["id"]).execute()
+            drive_service.permissions().delete(
+                fileId=file_id, 
+                permissionId=perm["id"],
+                supportsAllDrives=True  # Add this parameter to support shared drives
+            ).execute()
             removed_count += 1
         
         return jsonify({
+            "success": True,
             "message": f"Removed {removed_count} collaborators from file {file_id}",
-            "removed_count": removed_count
+            "removed_count": removed_count,
+            "owner": owner_email
         })
     except Exception as e:
+        import traceback
+        print(f"Error removing collaborators: {str(e)}")
+        print(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 @app.route("/logout")
