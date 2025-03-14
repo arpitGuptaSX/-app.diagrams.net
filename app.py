@@ -428,10 +428,10 @@ def download_zip():
                     if file_metadata.get('mimeType') == 'application/vnd.google-apps.folder':
                         continue
                     
-                    # Download file content
-                    request = drive_service.files().get_media(fileId=file_id)
+                    # Download file content - FIX: Renamed variable to avoid conflict
+                    download_request = drive_service.files().get_media(fileId=file_id)
                     file_content = io.BytesIO()
-                    downloader = MediaIoBaseDownload(file_content, request)
+                    downloader = MediaIoBaseDownload(file_content, download_request)
                     
                     done = False
                     while not done:
