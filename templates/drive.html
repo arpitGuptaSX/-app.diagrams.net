@@ -22,7 +22,7 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="/">My Drive App</a>
+            <a class="navbar-brand" href="/">Diagrams.net</a>
             <div class="navbar-nav ms-auto">
                 {% if session.get('email') %}
                 <span class="nav-link text-light">{{ session.get('email') }}</span>
@@ -48,42 +48,7 @@
         <!-- Action Panel -->
         <div class="action-panel">
             <div class="row g-3">
-                <div class="col-md-4">
-                    <div class="input-group">
-                        <input type="text" id="collaborator-email" class="form-control" placeholder="Email address">
-                        <button class="btn btn-success" onclick="addCollaborator()">
-                            <i class="bi bi-person-plus"></i> Add Collaborator
-                        </button>
-                    </div>
-                </div>
 
-                <div class="col-md-4">
-                    <div class="input-group">
-                        <input type="text" id="remove-email" class="form-control" placeholder="Email to remove">
-                        <button class="btn btn-warning" onclick="removeCollaborator()">
-                            <i class="bi bi-person-x"></i> Remove Collaborator
-                        </button>
-                    </div>
-                </div>
-
-                <div class="col-md-4">
-                    <div class="btn-group">
-                        <button class="btn btn-danger" onclick="deleteSelected()">
-                            <i class="bi bi-trash"></i> Delete Selected
-                        </button>
-                        <button class="btn btn-secondary" onclick="downloadAsZip()">
-                            <i class="bi bi-file-earmark-zip"></i> Download as ZIP
-                        </button>
-                        <button class="btn btn-warning" onclick="removeAllCollaborators()">
-                            <i class="bi bi-people-fill"></i> Remove All Collaborators
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <hr>
-
-            <div class="row mt-3">
                 <div class="col-md-6">
                     <form id="upload-form" enctype="multipart/form-data">
                         <div class="input-group">
@@ -100,7 +65,26 @@
                         </div>
                     </div>
                 </div>
+                
+
+                <div class="col-md-6">
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                       
+                        <button class="btn btn-secondary" onclick="downloadAsZip()">
+                            <i class="bi bi-file-earmark-zip"></i> Download as ZIP
+                        </button>
+                        <button class="btn btn-warning" onclick="removeAllCollaborators()">
+                            <i class="bi bi-people-fill"></i> Remove All Collaborators
+                        </button>
+                        <button class="btn btn-danger" onclick="deleteSelected()">
+                            <i class="bi bi-trash"></i> Delete Selected
+                        </button>
+                    </div>
+                </div>
             </div>
+
+            <hr>
+
         </div>
 
         {% if files %}
