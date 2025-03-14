@@ -69,14 +69,15 @@
 
                 <div class="col-md-6">
                     <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                        <button class="btn btn-danger" onclick="deleteSelected()">
-                            <i class="bi bi-trash"></i> Delete Selected
-                        </button>
+                       
                         <button class="btn btn-secondary" onclick="downloadAsZip()">
                             <i class="bi bi-file-earmark-zip"></i> Download as ZIP
                         </button>
                         <button class="btn btn-warning" onclick="removeAllCollaborators()">
                             <i class="bi bi-people-fill"></i> Remove All Collaborators
+                        </button>
+                        <button class="btn btn-danger" onclick="deleteSelected()">
+                            <i class="bi bi-trash"></i> Delete Selected
                         </button>
                     </div>
                 </div>
