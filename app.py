@@ -387,7 +387,6 @@ def get_drive_service():
 
 
 
-# Then fix the download_zip function
 @app.route("/drive/download_zip", methods=["POST"])
 def download_zip():
     """Download selected files as a ZIP archive"""
@@ -462,13 +461,13 @@ def download_zip():
                         
                         # Export the file
                         print(f"Exporting {file_name} as {export_mime_type}")
-                        request = drive_service.files().export_media(fileId=file_id, mimeType=export_mime_type)
-                        downloader = MediaIoBaseDownload(file_content, request)
+                        download_request = drive_service.files().export_media(fileId=file_id, mimeType=export_mime_type)
+                        downloader = MediaIoBaseDownload(file_content, download_request)
                     else:
                         # Regular file, download directly
                         print(f"Downloading {file_name} ({mime_type})")
-                        request = drive_service.files().get_media(fileId=file_id)
-                        downloader = MediaIoBaseDownload(file_content, request)
+                        download_request = drive_service.files().get_media(fileId=file_id)
+                        downloader = MediaIoBaseDownload(file_content, download_request)
                     
                     # Download the file
                     done = False
@@ -499,7 +498,7 @@ def download_zip():
             memory_file,
             mimetype='application/zip',
             as_attachment=True,
-            download_name=filename  # Use download_name for Flask 2.0+, otherwise use attachment_filename
+            download_name=filename
         )
     except Exception as e:
         import traceback
